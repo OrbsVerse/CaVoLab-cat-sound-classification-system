@@ -1,34 +1,107 @@
 import streamlit as st
-import joblib
 import numpy as np
+import joblib
 import librosa
 import os
-import pandas as pd  
+import pandas as pd
 
 # Konstanta
 MODEL_PATH = "model/best_svm.pkl"
 N_MFCC = 20
 
+# ---------------------------------------------------------
+# 1. CLASS INPUT (Sesuai Diagram)
+# ---------------------------------------------------------
+class Input:
+    def __init__(self, uploaded_file):
+        """
+        Menangani input file dari user.
+        """
+        self.file = uploaded_file
+        self.path = None
 
-def extract_features(path):
-    y, sr = librosa.load(path, sr=None)
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC)
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-    zcr = librosa.feature.zero_crossing_rate(y=y)
-    rms = librosa.feature.rms(y=y)
+    def save_temp(self):
+        """Menyimpan file sementara agar bisa dibaca Librosa"""
+        if not os.path.exists("uploads"):
+            os.makedirs("uploads")
+        
+        self.path = f"uploads/{self.file.name}"
+        with open(self.path, "wb") as f:
+            f.write(self.file.getbuffer())
+        return self.path
 
-    feat = np.concatenate(
-        [
-            np.mean(mfcc, axis=1),
-            np.std(mfcc, axis=1),
-            np.mean(chroma, axis=1),
-            [np.mean(zcr)],
-            [np.mean(rms)],
-        ]
-    )
-    return feat.reshape(1, -1)
+# ---------------------------------------------------------
+# 2. CLASS PREPROCESSING (Sesuai Diagram)
+# ---------------------------------------------------------
+class Preprocessing:
+    def __init__(self):
+        self.sampling_rate = None
+        self.features = None
+        self.duration = 0.0
+        self.noise_level = 0.0
 
+    def noiseReduction(self, y):
+        """
+        Sesuai Diagram: noiseReduction(input)
+        Implementasi sederhana: Menghapus silence (hening) di awal/akhir
+        sebagai bentuk pengurangan noise dasar.
+        """
+        y_trimmed, _ = librosa.effects.trim(y, top_db=20)
+        return y_trimmed
 
+    def normalize(self, y):
+        """
+        Sesuai Diagram: normalize(input)
+        Mengubah amplitudo audio ke range -1 hingga 1 (Norm)
+        """
+        return librosa.util.normalize(y)
+
+    def featureExtraction(self, y, sr):
+        """
+        Sesuai Diagram: featureExtraction(input)
+        Mengekstrak MFCC, Chroma, ZCR, RMS
+        """
+        self.sampling_rate = sr
+        self.duration = librosa.get_duration(y=y, sr=sr)
+        
+        # Ekstraksi Fitur
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC)
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+        zcr = librosa.feature.zero_crossing_rate(y=y)
+        rms = librosa.feature.rms(y=y)
+
+        # Aggregasi (Mean & Std)
+        self.features = np.concatenate(
+            [
+                np.mean(mfcc, axis=1),
+                np.std(mfcc, axis=1),
+                np.mean(chroma, axis=1),
+                [np.mean(zcr)],
+                [np.mean(rms)],
+            ]
+        )
+        return self.features.reshape(1, -1)
+
+    def getFeatures(self):
+        return self.features
+
+# ---------------------------------------------------------
+# 3. CLASS CLASSIFICATION (Sesuai Diagram)
+# ---------------------------------------------------------
+class Classification:
+    def __init__(self, model_path):
+        self.model = joblib.load(model_path)
+
+    def predict(self, features):
+        """
+        Sesuai Diagram: predict(input)
+        Mengembalikan probabilitas prediksi
+        """
+        return self.model.predict_proba(features)[0]
+
+# ---------------------------------------------------------
+# 4. MAIN CONTROLLER & UI (Menggabungkan Semuanya)
+# ---------------------------------------------------------
 def run():
     st.title("📋 Hasil Kehadiran & Prediksi Suara Kucing")
 
@@ -36,93 +109,70 @@ def run():
         st.divider()
         st.subheader("🎧 Unggah Suara Kucing")
 
-        audio_file = st.file_uploader(
+        uploaded_file = st.file_uploader(
             "Upload rekaman suara kucing",
             type=["wav", "mp3"],
-            help="Maksimal ukuran file 5 MB",
+            help="Maksimal ukuran file 5 MB"
         )
 
-        if audio_file is not None:
-            # Validasi Manual (Backup jika config.toml belum diset)
-            file_type = audio_file.name.split(".")[-1].lower()
-            file_size_mb = audio_file.size / (1024 * 1024)
+        if uploaded_file is not None:
+            # 1. Instansiasi Objek Input
+            input_obj = Input(uploaded_file)
+            audio_path = input_obj.save_temp()
+            
+            st.audio(audio_path)
 
-            if file_type not in ["wav", "mp3"]:
-                st.error("Format file salah. Harap upload file .mp3 atau .wav.")
-            elif file_size_mb > 5:
-                st.error("Ukuran file melebihi 5 MB.")
-            else:
-                # Simpan file
-                if not os.path.exists("uploads"):
-                    os.makedirs("uploads")
+            try:
+                # Load Audio menggunakan Librosa (Awal proses)
+                y, sr = librosa.load(audio_path, sr=None)
 
-                uploaded_path = f"uploads/{audio_file.name}"
-                with open(uploaded_path, "wb") as f:
-                    f.write(audio_file.getbuffer())
+                # 2. Instansiasi Objek Preprocessing
+                prep = Preprocessing()
+                
+                # --- Alur sesuai Method di Diagram ---
+                y_denoised = prep.noiseReduction(y) # Panggil noiseReduction
+                y_normalized = prep.normalize(y_denoised) # Panggil normalize
+                features = prep.featureExtraction(y_normalized, sr) # Panggil featureExtraction
 
-                st.audio(uploaded_path)
+                # 3. Instansiasi Objek Classification
+                classifier = Classification(MODEL_PATH)
+                prediction_prob = classifier.predict(features)
 
-                try:
-                    # 1. Load Model
-                    model = joblib.load(MODEL_PATH)
-                    feat = extract_features(uploaded_path)
+                # --- Menampilkan Hasil (UI) ---
+                pred_index = np.argmax(prediction_prob)
+                confidence = prediction_prob[pred_index] * 100
 
-                    # 2. Prediksi Label & Probabilitas
-                    # predict_proba mengembalikan array probabilitas untuk setiap kelas [p1, p2, p3]
-                    prediction_prob = model.predict_proba(feat)[0]
-                    pred_index = np.argmax(
-                        prediction_prob
-                    )  # Ambil index dengan nilai tertinggi
-                    confidence = prediction_prob[pred_index] * 100  # Ubah ke persen
+                label_map = {
+                    0: "Kucing sedang brushing 😺",
+                    1: "Kucing menunggu makanan 🍽",
+                    2: "Kucing terisolasi 😾",
+                }
+                hasil_prediksi = label_map.get(pred_index, "Tidak diketahui")
+                st.session_state.hasil_prediksi = hasil_prediksi
 
-                    label_map = {
-                        0: "Kucing sedang brushing 😺",
-                        1: "Kucing menunggu makanan 🍽",
-                        2: "Kucing terisolasi 😾",
-                    }
+                st.divider()
+                st.subheader("📊 Hasil Prediksi Otomatis")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Nama Pemilik:** {st.session_state.nama_pemilik}")
+                    st.write(f"**Nama Kucing:** {st.session_state.nama_kucing}")
+                
+                st.info(f"**Hasil:** {hasil_prediksi}\n\n**Tingkat Keyakinan:** {confidence:.1f}%")
 
-                    hasil_prediksi = label_map.get(pred_index, "Tidak diketahui")
-                    st.session_state.hasil_prediksi = hasil_prediksi
+                # Visualisasi Chart
+                st.write("---")
+                st.caption("Rincian Probabilitas Sistem:")
+                data_prob = {
+                    "Kondisi": [label_map[0], label_map[1], label_map[2]],
+                    "Persentase": [f"{p*100:.1f}%" for p in prediction_prob],
+                    "Nilai": prediction_prob
+                }
+                df_prob = pd.DataFrame(data_prob)
+                st.bar_chart(df_prob.set_index("Kondisi")["Nilai"])
 
-                    # 3. Tampilkan Hasil Utama
-                    st.divider()
-                    st.subheader("📊 Hasil Prediksi Otomatis")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**Nama Pemilik:** {st.session_state.nama_pemilik}")
-                        st.write(f"**Nama Kucing:** {st.session_state.nama_kucing}")
-
-                    # Menampilkan hasil prediksi dengan persentase besar
-                    st.info(
-                        f"**Hasil:** {hasil_prediksi}\n\n**Tingkat Keyakinan:** {confidence:.1f}%"
-                    )
-
-                    # 4. Tampilkan Rincian Persentase (Opsional tapi bagus)
-                    st.write("---")
-                    st.caption("Rincian Probabilitas Sistem:")
-
-                    # Membuat DataFrame untuk chart
-                    data_prob = {
-                        "Kondisi": [label_map[0], label_map[1], label_map[2]],
-                        "Persentase": [f"{p*100:.1f}%" for p in prediction_prob],
-                        "Nilai": prediction_prob,  # Untuk bar chart
-                    }
-
-                    df_prob = pd.DataFrame(data_prob)
-
-                    # Menampilkan tabel sederhana
-                    st.table(df_prob[["Kondisi", "Persentase"]])
-
-                    # Menampilkan Bar Chart
-                    st.bar_chart(df_prob.set_index("Kondisi")["Nilai"])
-
-                except AttributeError:
-                    st.error(
-                        "Model SVM Anda tidak mendukung probabilitas. Pastikan saat training menggunakan parameter `probability=True`."
-                    )
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan: {e}")
 
         if st.button("⬅ Kembali ke Daftar Hadir"):
             st.session_state.page = "daftar_hadir"
