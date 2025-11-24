@@ -7,13 +7,13 @@
 
 Aplikasi berbasis web untuk menerjemahkan arti suara kucing menggunakan **Machine Learning (SVM)** dan **Digital Signal Processing**. Aplikasi ini dapat membedakan apakah kucing sedang ingin dimanja (brushing), lapar, atau merasa terisolasi.
 
-🔗 **Demo Aplikasi:** [Klik di sini untuk mencoba](MASUKKAN_LINK_STREAMLIT_CLOUD_DISINI)
+🔗 **Demo Aplikasi:** [Klik di sini untuk mencoba](https://cavolab-cat-sound-classification-system.streamlit.app/)
 
 ## 📊 Dataset & Kredit
 Dataset yang digunakan untuk melatih model ini bersumber dari Kaggle:
 
 * **Nama Dataset:** Cat Meow Classification
-* **Sumber:** Kaggle - Cat Meow Classification(https://www.kaggle.com/datasets/andrewmvd/cat-meow-classification)
+* **Sumber:** Kaggle - Cat Meow Classification (https://www.kaggle.com/datasets/andrewmvd/cat-meow-classification)
 * **Penulis Asli:** Larxel
 * **Lisensi:** CC BY NC 4.0
 
