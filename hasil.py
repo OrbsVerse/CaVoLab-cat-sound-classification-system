@@ -9,6 +9,7 @@ import pandas as pd
 MODEL_PATH = "model/best_svm.pkl"
 N_MFCC = 20
 
+
 # ---------------------------------------------------------
 # 1. CLASS INPUT (Sesuai Diagram)
 # ---------------------------------------------------------
@@ -24,11 +25,12 @@ class Input:
         """Menyimpan file sementara agar bisa dibaca Librosa"""
         if not os.path.exists("uploads"):
             os.makedirs("uploads")
-        
+
         self.path = f"uploads/{self.file.name}"
         with open(self.path, "wb") as f:
             f.write(self.file.getbuffer())
         return self.path
+
 
 # ---------------------------------------------------------
 # 2. CLASS PREPROCESSING (Sesuai Diagram)
@@ -38,7 +40,15 @@ class Preprocessing:
         self.sampling_rate = None
         self.features = None
         self.duration = 0.0
-        self.noise_level = 0.0
+        self.noise_level = 0.0  # Typo di diagram 'noice', di kode sudah benar 'noise'
+
+    def resample(self, path, target_sr=None):
+        """
+        Menambahkan method ini agar sesuai Class Diagram.
+        """
+        y, sr = librosa.load(path, sr=target_sr)
+        self.sampling_rate = sr
+        return y, sr
 
     def noiseReduction(self, y):
         """
@@ -63,7 +73,7 @@ class Preprocessing:
         """
         self.sampling_rate = sr
         self.duration = librosa.get_duration(y=y, sr=sr)
-        
+
         # Ekstraksi Fitur
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
@@ -85,6 +95,7 @@ class Preprocessing:
     def getFeatures(self):
         return self.features
 
+
 # ---------------------------------------------------------
 # 3. CLASS CLASSIFICATION (Sesuai Diagram)
 # ---------------------------------------------------------
@@ -99,6 +110,7 @@ class Classification:
         """
         return self.model.predict_proba(features)[0]
 
+
 # ---------------------------------------------------------
 # 4. MAIN CONTROLLER & UI (Menggabungkan Semuanya)
 # ---------------------------------------------------------
@@ -112,27 +124,27 @@ def run():
         uploaded_file = st.file_uploader(
             "Upload rekaman suara kucing",
             type=["wav", "mp3"],
-            help="Maksimal ukuran file 5 MB"
+            help="Maksimal ukuran file 5 MB",
         )
 
         if uploaded_file is not None:
             # 1. Instansiasi Objek Input
             input_obj = Input(uploaded_file)
             audio_path = input_obj.save_temp()
-            
+
             st.audio(audio_path)
 
             try:
                 # Load Audio menggunakan Librosa (Awal proses)
-                y, sr = librosa.load(audio_path, sr=None)
-
-                # 2. Instansiasi Objek Preprocessing
                 prep = Preprocessing()
-                
+                y, sr = prep.resample(audio_path, target_sr=None)
+
                 # --- Alur sesuai Method di Diagram ---
-                y_denoised = prep.noiseReduction(y) # Panggil noiseReduction
-                y_normalized = prep.normalize(y_denoised) # Panggil normalize
-                features = prep.featureExtraction(y_normalized, sr) # Panggil featureExtraction
+                y_denoised = prep.noiseReduction(y)  # Panggil noiseReduction
+                y_normalized = prep.normalize(y_denoised)  # Panggil normalize
+                features = prep.featureExtraction(
+                    y_normalized, sr
+                )  # Panggil featureExtraction
 
                 # 3. Instansiasi Objek Classification
                 classifier = Classification(MODEL_PATH)
@@ -152,13 +164,15 @@ def run():
 
                 st.divider()
                 st.subheader("📊 Hasil Prediksi Otomatis")
-                
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write(f"**Nama Pemilik:** {st.session_state.nama_pemilik}")
                     st.write(f"**Nama Kucing:** {st.session_state.nama_kucing}")
-                
-                st.info(f"**Hasil:** {hasil_prediksi}\n\n**Tingkat Keyakinan:** {confidence:.1f}%")
+
+                st.info(
+                    f"**Hasil:** {hasil_prediksi}\n\n**Tingkat Keyakinan:** {confidence:.1f}%"
+                )
 
                 # Visualisasi Chart
                 st.write("---")
@@ -166,7 +180,7 @@ def run():
                 data_prob = {
                     "Kondisi": [label_map[0], label_map[1], label_map[2]],
                     "Persentase": [f"{p*100:.1f}%" for p in prediction_prob],
-                    "Nilai": prediction_prob
+                    "Nilai": prediction_prob,
                 }
                 df_prob = pd.DataFrame(data_prob)
                 st.bar_chart(df_prob.set_index("Kondisi")["Nilai"])
